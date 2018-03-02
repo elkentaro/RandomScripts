@@ -9,7 +9,10 @@ ssid=$(sudo iwconfig wlan0 | grep ESSID | awk '{print $4}' | awk -F: '{print $2}
 #setting up some variables. 
 homessid=“[YOUR HOME NETWORK]“
 homeboxip=“[TARGET IP ADDRESS]“
+homeuser="[TARGET IP LOGIN NAME]"
+homedirectory="[TARGET IP DIRECTORY]"
 backupdate=`date +%Y-%m-%d`
+
 
 #if both the source and target are on the same SSID then
 if [ "$ssid" == "$homessid" ] 
@@ -28,6 +31,6 @@ sudo cp /home/chip/dumps/* /home/chip/backup/$backupdate/
 
 #scp to the destination box. 
 
-sudo scp -r  /home/chip/backup/$backupdate/  [username]@$homeboxip:/HackerChip/Backups/
+sudo scp -r  /home/chip/backup/$backupdate/  $homeuser@$homeboxip:$homedirectory
 
 fi
