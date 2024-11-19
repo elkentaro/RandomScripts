@@ -1,0 +1,59 @@
+#!/bin/bash
+
+# Check the number of arguments
+if [ "$#" -lt 1 ]; then
+    echo "Usage:"
+    echo "  $0 <subnet>                       - List all live hosts and their IPs"
+    echo "  $0 <subnet> <username:password>   - Test connection to live hosts and display hostnames"
+    echo "Examples:"
+    echo "  $0 192.168.1.0/24"
+    echo "  $0 192.168.1.0/24 username:password"
+    exit 1
+fi
+
+# Assign variables
+SUBNET=$1
+CREDENTIALS=${2:-}
+
+# Parse username and password if provided
+if [ -n "$CREDENTIALS" ]; then
+    USERNAME=$(echo "$CREDENTIALS" | cut -d':' -f1)
+    PASSWORD=$(echo "$CREDENTIALS" | cut -d':' -f2)
+fi
+
+# Scan the subnet
+echo "Scanning subnet: $SUBNET"
+echo "---------------------------"
+
+LIVE_HOSTS=$(nmap -sn "$SUBNET" | awk '/Nmap scan report/{print $NF}' | sed 's/[()]//g')
+
+if [ -z "$LIVE_HOSTS" ]; then
+    echo "No live hosts found on the subnet."
+    exit 0
+fi
+
+# If only subnet is provided, list live hosts
+if [ -z "$USERNAME" ] || [ -z "$PASSWORD" ]; then
+    echo "Live hosts:"
+    echo "$LIVE_HOSTS"
+    echo "---------------------------"
+    echo "Scan complete."
+    exit 0
+fi
+
+# If username and password are provided, test connection to each host
+echo "Testing connectivity with username: $USERNAME and password: $PASSWORD"
+echo "---------------------------"
+
+for IP in $LIVE_HOSTS; do
+    echo "Testing host: $IP"
+    HOSTNAME=$(sshpass -p "$PASSWORD" ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$USERNAME@$IP" hostname 2>/dev/null)
+    if [ $? -eq 0 ]; then
+        echo "Login success: $IP (Hostname: $HOSTNAME)"
+    else
+        echo "Login failed: $IP"
+    fi
+done
+
+echo "---------------------------"
+echo "Scan complete."
