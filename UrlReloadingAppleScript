@@ -1,0 +1,33 @@
+-- URL to monitor
+set targetURL to "http://example.com" -- Replace with your desired URL
+
+-- Function to check HTTP status using shell script
+on checkHTTPStatus(targetURL)
+	return do shell script "curl -o /dev/null -s -w '%{http_code}' " & quoted form of targetURL
+end checkHTTPStatus
+
+-- Main loop to reload the URL in Chrome until 200 response
+repeat
+	-- Check the HTTP status
+	set responseStatus to checkHTTPStatus(targetURL)
+	
+	if responseStatus = "200" then
+		display notification "Page loaded successfully with 200 response" with title "Monitoring Complete"
+		exit repeat
+	end if
+	
+	-- Close the active tab
+	tell application "Google Chrome"
+		if (count of tabs of front window) > 0 then
+			close active tab of front window
+		end if
+	end tell
+	
+	-- Open the URL in a new tab
+	tell application "Google Chrome"
+		open location targetURL
+	end tell
+	
+	-- Wait before rechecking
+	delay 5 #second till next try
+end repeat
