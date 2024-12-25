@@ -1,5 +1,7 @@
-#!/bin/bash
+# Simple file backup script that check the md5 hash of a file if its different than previous check if a directory exist if it does
+# backup to the directory , if not create directory and backup. 
 
+#!/bin/bash
 # Source directory where files are stored
 SOURCE_DIR="/path/to/files"
 
