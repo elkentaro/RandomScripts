@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+
+REAL_SCREEN="/usr/bin/screen"
+
+# If arguments are provided, behave exactly like normal screen
+if [ "$#" -gt 0 ]; then
+    exec "$REAL_SCREEN" "$@"
+fi
+
+# Collect existing sessions
+mapfile -t SESSIONS < <(
+    "$REAL_SCREEN" -ls 2>/dev/null | awk '/\t[0-9]+/{print $1}'
+)
+
+echo
+echo "Screen sessions:"
+if [ ${#SESSIONS[@]} -eq 0 ]; then
+    echo "  (none)"
+else
+    for i in "${!SESSIONS[@]}"; do
+        printf "  [%d] %s\n" "$i" "${SESSIONS[$i]}"
+    done
+fi
+echo
+
+read -rp "Enter session number to attach, or name for new session: " INPUT
+
+# Numeric input → attach to existing session
+if [[ "$INPUT" =~ ^[0-9]+$ ]] && [ "$INPUT" -lt "${#SESSIONS[@]}" ]; then
+    exec "$REAL_SCREEN" -r "${SESSIONS[$INPUT]}"
+fi
+
+# Empty input → default screen behavior
+if [ -z "$INPUT" ]; then
+    exec "$REAL_SCREEN"
+fi
+
+# Otherwise → create a named session
+exec "$REAL_SCREEN" -S "$INPUT"
