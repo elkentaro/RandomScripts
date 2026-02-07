@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tweet Archive Reviewer</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #15202b;
+            color: #e7e9ea;
+            margin: 0;
+            padding: 20px;
+            line-height: 1.5;
+        }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 { color: #1d9bf0; margin-bottom: 5px; }
+        .subtitle { color: #71767b; margin-bottom: 20px; }
+        
+        /* Controls */
+        .controls {
+            background: #1e2d3d;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .control-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        .control-row:last-child { margin-bottom: 0; }
+        
+        input[type="text"], input[type="file"] {
+            background: #273340;
+            border: 1px solid #38444d;
+            color: #e7e9ea;
+            padding: 8px 12px;
+            border-radius: 5px;
+            flex: 1;
+            min-width: 200px;
+        }
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #1d9bf0;
+        }
+        
+        button {
+            background: #1d9bf0;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        button:hover { background: #1a8cd8; }
+        button.secondary {
+            background: #273340;
+            border: 1px solid #38444d;
+        }
+        button.secondary:hover { background: #38444d; }
+        button.danger { background: #f4212e; }
+        button.danger:hover { background: #dc1d28; }
+        button.success { background: #00ba7c; }
+        button.success:hover { background: #00a06c; }
+        
+        .filter-buttons {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+        }
+        .filter-btn {
+            padding: 5px 12px;
+            font-size: 13px;
+            background: #273340;
+            border: 1px solid #38444d;
+        }
+        .filter-btn.active {
+            background: #1d9bf0;
+            border-color: #1d9bf0;
+        }
+        
+        /* Stats */
+        .stats {
+            display: flex;
+            gap: 20px;
+            color: #71767b;
+            font-size: 14px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        .stat-num { color: #e7e9ea; font-weight: 600; }
+        .stat-delete { color: #f4212e; }
+        .stat-keep { color: #00ba7c; }
+        
+        /* Tweet list */
+        .tweet-list { display: flex; flex-direction: column; gap: 10px; }
+        
+        .tweet {
+            background: #1e2d3d;
+            border: 1px solid #38444d;
+            border-radius: 10px;
+            padding: 15px;
+            transition: border-color 0.2s;
+        }
+        .tweet:hover { border-color: #1d9bf0; }
+        .tweet.marked-delete {
+            border-color: #f4212e;
+            background: #2d1f1f;
+        }
+        .tweet.marked-keep {
+            border-color: #00ba7c;
+            background: #1f2d25;
+        }
+        
+        .tweet-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 10px;
+            gap: 10px;
+        }
+        .tweet-meta {
+            color: #71767b;
+            font-size: 13px;
+        }
+        .tweet-type {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .type-tweet { background: #1d4f7a; color: #8ecdf8; }
+        .type-retweet { background: #2d5a3d; color: #7ee2a8; }
+        .type-reply { background: #5a4a2d; color: #e2c87e; }
+        
+        .tweet-text {
+            margin-bottom: 10px;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+        .tweet-text a { color: #1d9bf0; }
+        
+        .tweet-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .tweet-actions button {
+            padding: 5px 12px;
+            font-size: 13px;
+        }
+        
+        .tweet-id {
+            font-family: monospace;
+            font-size: 11px;
+            color: #71767b;
+        }
+        
+        /* Load prompt */
+        .load-prompt {
+            text-align: center;
+            padding: 60px 20px;
+            color: #71767b;
+        }
+        .load-prompt h2 { color: #e7e9ea; }
+        
+        /* Pagination */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+        .page-info { color: #71767b; padding: 8px; }
+        
+        /* Export modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal.active { display: flex; }
+        .modal-content {
+            background: #1e2d3d;
+            padding: 20px;
+            border-radius: 10px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .modal-content h3 { margin-top: 0; }
+        .modal-content textarea {
+            width: 100%;
+            height: 300px;
+            background: #273340;
+            border: 1px solid #38444d;
+            color: #e7e9ea;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            justify-content: flex-end;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🐦 Tweet Archive Reviewer</h1>
+        <p class="subtitle">Review your tweets and select which to keep or delete</p>
+        
+        <div class="controls">
+            <div class="control-row">
+                <input type="file" id="fileInput" accept=".js" />
+                <button onclick="loadLikes()" class="secondary">+ Load likes.js</button>
+            </div>
+            <div class="control-row">
+                <input type="text" id="searchInput" placeholder="Search tweets..." oninput="filterTweets()" />
+            </div>
+            <div class="control-row">
+                <div class="filter-buttons">
+                    <button class="filter-btn active" data-filter="all" onclick="setFilter('all')">All</button>
+                    <button class="filter-btn" data-filter="tweet" onclick="setFilter('tweet')">Tweets</button>
+                    <button class="filter-btn" data-filter="retweet" onclick="setFilter('retweet')">Retweets</button>
+                    <button class="filter-btn" data-filter="reply" onclick="setFilter('reply')">Replies</button>
+                    <button class="filter-btn" data-filter="marked-delete" onclick="setFilter('marked-delete')">🗑️ To Delete</button>
+                    <button class="filter-btn" data-filter="marked-keep" onclick="setFilter('marked-keep')">✓ To Keep</button>
+                    <button class="filter-btn" data-filter="unmarked" onclick="setFilter('unmarked')">Unmarked</button>
+                </div>
+            </div>
+            <div class="control-row">
+                <button onclick="markAllFiltered('delete')" class="danger">Mark Filtered as Delete</button>
+                <button onclick="markAllFiltered('keep')" class="success">Mark Filtered as Keep</button>
+                <button onclick="clearAllMarks()" class="secondary">Clear All Marks</button>
+                <button onclick="showExport()" class="secondary">Export Lists</button>
+            </div>
+            <div class="stats">
+                <span>Total: <span class="stat-num" id="statTotal">0</span></span>
+                <span>Showing: <span class="stat-num" id="statShowing">0</span></span>
+                <span>To Delete: <span class="stat-num stat-delete" id="statDelete">0</span></span>
+                <span>To Keep: <span class="stat-num stat-keep" id="statKeep">0</span></span>
+            </div>
+        </div>
+        
+        <div id="tweetList" class="tweet-list">
+            <div class="load-prompt">
+                <h2>Load your tweets.js</h2>
+                <p>Select your tweets.js file from your Twitter archive to get started.<br>
+                You can also load likes.js separately.</p>
+            </div>
+        </div>
+        
+        <div class="pagination" id="pagination"></div>
+    </div>
+    
+    <!-- Export Modal -->
+    <div class="modal" id="exportModal">
+        <div class="modal-content">
+            <h3>Export Lists</h3>
+            <p>Copy the IDs below to use with the deletion script:</p>
+            
+            <h4>Whitelist (tweets to KEEP):</h4>
+            <textarea id="exportKeep" readonly></textarea>
+            
+            <h4>Delete list (tweets to DELETE):</h4>
+            <textarea id="exportDelete" readonly></textarea>
+            
+            <div class="modal-actions">
+                <button onclick="downloadList('keep')" class="success">Download Whitelist</button>
+                <button onclick="downloadList('delete')" class="danger">Download Delete List</button>
+                <button onclick="closeModal()" class="secondary">Close</button>
+            </div>
+        </div>
+    </div>
+    
+    <input type="file" id="likesInput" accept=".js" style="display:none" />
+
+    <script>
+        let allTweets = [];
+        let filteredTweets = [];
+        let marks = {}; // id -> 'delete' | 'keep'
+        let currentFilter = 'all';
+        let currentPage = 1;
+        const perPage = 50;
+        
+        // Load tweets.js
+        document.getElementById('fileInput').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const text = await file.text();
+            // Remove the "window.YTD.tweets.part0 = " prefix
+            const jsonStr = text.replace(/^window\.YTD\.\w+\.part0\s*=\s*/, '');
+            const data = JSON.parse(jsonStr);
+            
+            allTweets = data.map(item => {
+                const t = item.tweet;
+                const isRetweet = t.full_text?.startsWith('RT @') || t.retweeted;
+                const isReply = !!t.in_reply_to_status_id;
+                
+                return {
+                    id: t.id_str,
+                    text: t.full_text || '',
+                    date: new Date(t.created_at),
+                    type: isRetweet ? 'retweet' : (isReply ? 'reply' : 'tweet'),
+                    replyTo: t.in_reply_to_screen_name,
+                    source: 'tweets'
+                };
+            });
+            
+            // Sort oldest first
+            allTweets.sort((a, b) => a.date - b.date);
+            
+            // Load saved marks from localStorage
+            loadMarks();
+            
+            filterTweets();
+        });
+        
+        // Load likes.js
+        function loadLikes() {
+            document.getElementById('likesInput').click();
+        }
+        
+        document.getElementById('likesInput').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const text = await file.text();
+            const jsonStr = text.replace(/^window\.YTD\.\w+\.part0\s*=\s*/, '');
+            const data = JSON.parse(jsonStr);
+            
+            const likes = data.map(item => {
+                const l = item.like;
+                return {
+                    id: l.tweetId,
+                    text: `[LIKED] ${l.fullText || '(no text available)'}`,
+                    date: new Date(), // Likes don't have dates in archive
+                    type: 'like',
+                    source: 'likes'
+                };
+            });
+            
+            allTweets = [...allTweets, ...likes];
+            filterTweets();
+            alert(`Loaded ${likes.length} likes`);
+        });
+        
+        function setFilter(filter) {
+            currentFilter = filter;
+            currentPage = 1;
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.filter === filter);
+            });
+            filterTweets();
+        }
+        
+        function filterTweets() {
+            const search = document.getElementById('searchInput').value.toLowerCase();
+            
+            filteredTweets = allTweets.filter(t => {
+                // Search filter
+                if (search && !t.text.toLowerCase().includes(search)) return false;
+                
+                // Type/mark filter
+                if (currentFilter === 'all') return true;
+                if (currentFilter === 'tweet') return t.type === 'tweet';
+                if (currentFilter === 'retweet') return t.type === 'retweet';
+                if (currentFilter === 'reply') return t.type === 'reply';
+                if (currentFilter === 'marked-delete') return marks[t.id] === 'delete';
+                if (currentFilter === 'marked-keep') return marks[t.id] === 'keep';
+                if (currentFilter === 'unmarked') return !marks[t.id];
+                return true;
+            });
+            
+            renderTweets();
+            updateStats();
+        }
+        
+        function renderTweets() {
+            const start = (currentPage - 1) * perPage;
+            const end = start + perPage;
+            const pageTweets = filteredTweets.slice(start, end);
+            
+            const container = document.getElementById('tweetList');
+            
+            if (pageTweets.length === 0) {
+                container.innerHTML = '<div class="load-prompt"><p>No tweets match the current filter.</p></div>';
+                document.getElementById('pagination').innerHTML = '';
+                return;
+            }
+            
+            container.innerHTML = pageTweets.map(t => {
+                const mark = marks[t.id];
+                const markClass = mark === 'delete' ? 'marked-delete' : (mark === 'keep' ? 'marked-keep' : '');
+                const typeClass = `type-${t.type}`;
+                const dateStr = t.date.toLocaleDateString() + ' ' + t.date.toLocaleTimeString();
+                
+                // Linkify URLs and mentions
+                let displayText = escapeHtml(t.text)
+                    .replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank">$1</a>')
+                    .replace(/@(\w+)/g, '<a href="https://x.com/$1" target="_blank">@$1</a>');
+                
+                return `
+                    <div class="tweet ${markClass}" data-id="${t.id}">
+                        <div class="tweet-header">
+                            <div>
+                                <span class="tweet-type ${typeClass}">${t.type}</span>
+                                ${t.replyTo ? `<span class="tweet-meta">→ @${t.replyTo}</span>` : ''}
+                            </div>
+                            <span class="tweet-meta">${dateStr}</span>
+                        </div>
+                        <div class="tweet-text">${displayText}</div>
+                        <div class="tweet-actions">
+                            <button onclick="markTweet('${t.id}', 'delete')" class="${mark === 'delete' ? 'danger' : 'secondary'}">🗑️ Delete</button>
+                            <button onclick="markTweet('${t.id}', 'keep')" class="${mark === 'keep' ? 'success' : 'secondary'}">✓ Keep</button>
+                            <button onclick="markTweet('${t.id}', null)" class="secondary">Clear</button>
+                            <a href="https://x.com/elkentaro/status/${t.id}" target="_blank" style="margin-left:auto">
+                                <button class="secondary">View ↗</button>
+                            </a>
+                        </div>
+                        <div class="tweet-id">ID: ${t.id}</div>
+                    </div>
+                `;
+            }).join('');
+            
+            renderPagination();
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function renderPagination() {
+            const totalPages = Math.ceil(filteredTweets.length / perPage);
+            if (totalPages <= 1) {
+                document.getElementById('pagination').innerHTML = '';
+                return;
+            }
+            
+            let html = '';
+            html += `<button onclick="goToPage(1)" class="secondary" ${currentPage === 1 ? 'disabled' : ''}>First</button>`;
+            html += `<button onclick="goToPage(${currentPage - 1})" class="secondary" ${currentPage === 1 ? 'disabled' : ''}>Prev</button>`;
+            html += `<span class="page-info">Page ${currentPage} of ${totalPages}</span>`;
+            html += `<button onclick="goToPage(${currentPage + 1})" class="secondary" ${currentPage === totalPages ? 'disabled' : ''}>Next</button>`;
+            html += `<button onclick="goToPage(${totalPages})" class="secondary" ${currentPage === totalPages ? 'disabled' : ''}>Last</button>`;
+            
+            document.getElementById('pagination').innerHTML = html;
+        }
+        
+        function goToPage(page) {
+            const totalPages = Math.ceil(filteredTweets.length / perPage);
+            if (page < 1 || page > totalPages) return;
+            currentPage = page;
+            renderTweets();
+            window.scrollTo(0, 0);
+        }
+        
+        function markTweet(id, mark) {
+            if (mark) {
+                marks[id] = mark;
+            } else {
+                delete marks[id];
+            }
+            saveMarks();
+            renderTweets();
+            updateStats();
+        }
+        
+        function markAllFiltered(mark) {
+            const count = filteredTweets.length;
+            if (!confirm(`Mark ${count} tweets as "${mark}"?`)) return;
+            
+            filteredTweets.forEach(t => {
+                marks[t.id] = mark;
+            });
+            saveMarks();
+            renderTweets();
+            updateStats();
+        }
+        
+        function clearAllMarks() {
+            if (!confirm('Clear all marks?')) return;
+            marks = {};
+            saveMarks();
+            renderTweets();
+            updateStats();
+        }
+        
+        function updateStats() {
+            document.getElementById('statTotal').textContent = allTweets.length;
+            document.getElementById('statShowing').textContent = filteredTweets.length;
+            document.getElementById('statDelete').textContent = Object.values(marks).filter(m => m === 'delete').length;
+            document.getElementById('statKeep').textContent = Object.values(marks).filter(m => m === 'keep').length;
+        }
+        
+        function saveMarks() {
+            localStorage.setItem('tweetMarks', JSON.stringify(marks));
+        }
+        
+        function loadMarks() {
+            const saved = localStorage.getItem('tweetMarks');
+            if (saved) {
+                marks = JSON.parse(saved);
+            }
+        }
+        
+        function showExport() {
+            const keepIds = Object.entries(marks).filter(([id, m]) => m === 'keep').map(([id]) => id);
+            const deleteIds = Object.entries(marks).filter(([id, m]) => m === 'delete').map(([id]) => id);
+            
+            document.getElementById('exportKeep').value = keepIds.join('\n');
+            document.getElementById('exportDelete').value = deleteIds.join('\n');
+            document.getElementById('exportModal').classList.add('active');
+        }
+        
+        function closeModal() {
+            document.getElementById('exportModal').classList.remove('active');
+        }
+        
+        function downloadList(type) {
+            const ids = type === 'keep' 
+                ? Object.entries(marks).filter(([id, m]) => m === 'keep').map(([id]) => id)
+                : Object.entries(marks).filter(([id, m]) => m === 'delete').map(([id]) => id);
+            
+            const filename = type === 'keep' ? 'whitelist.txt' : 'delete_list.txt';
+            const blob = new Blob([ids.join('\n')], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+        
+        // Close modal on outside click
+        document.getElementById('exportModal').addEventListener('click', (e) => {
+            if (e.target.id === 'exportModal') closeModal();
+        });
+    </script>
+</body>
+</html>
