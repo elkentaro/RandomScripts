@@ -32,9 +32,9 @@ TWEETS_PROGRESS = "progress_tweets.txt"
 LIKES_PROGRESS = "progress_likes.txt"
 LOG_FILE = "deletion.log"
 
-# Pacing - 20 seconds between same-type operations
-# But we alternate, so effective rate is 1 operation every 10 seconds
-DELAY_BETWEEN_SAME_TYPE = 20  # seconds
+# Pacing - minimum seconds between same-type operations
+# With proper rate limit detection, we can go faster and just wait when limited
+DELAY_BETWEEN_SAME_TYPE = 3  # seconds (will auto-wait on rate limit)
 
 # === END CONFIGURATION ===
 
@@ -112,8 +112,11 @@ def get_client(config: dict) -> tweepy.Client:
     )
 
 
-def do_action(client, item: dict) -> str:
-    """Returns: 'done', 'rate_limit', 'error'"""
+def do_action(client, item: dict) -> tuple:
+    """Returns: (status, reset_timestamp)
+    status: 'done', 'rate_limit', 'error'
+    reset_timestamp: unix timestamp when rate limit resets (or None)
+    """
     tid = item['id']
     ttype = item['type']
     
@@ -122,16 +125,22 @@ def do_action(client, item: dict) -> str:
             client.unlike(tid)
         else:
             client.delete_tweet(tid)
-        return 'done'
+        return ('done', None)
     except tweepy.NotFound:
-        return 'done'  # Already gone
+        return ('done', None)  # Already gone
     except tweepy.Forbidden:
-        return 'done'  # Can't delete, skip
-    except tweepy.TooManyRequests:
-        return 'rate_limit'
+        return ('done', None)  # Can't delete, skip
+    except tweepy.TooManyRequests as e:
+        # Get reset time from response headers
+        reset_time = None
+        if hasattr(e, 'response') and e.response is not None:
+            reset_ts = e.response.headers.get('x-rate-limit-reset')
+            if reset_ts:
+                reset_time = int(reset_ts)
+        return ('rate_limit', reset_time)
     except Exception as e:
         log(f"    Error: {e}")
-        return 'error'
+        return ('error', None)
 
 
 def main():
@@ -197,13 +206,25 @@ def main():
     last_tweet_time = 0
     last_like_time = 0
     
+    # Track rate limit reset times
+    tweet_reset_time = 0
+    like_reset_time = 0
+    
     # Interleave: alternate between tweets and likes
     while tweet_idx < len(tweet_queue) or like_idx < len(like_queue):
         now = time.time()
         
+        # Check if rate limited
+        tweet_rate_limited = now < tweet_reset_time
+        like_rate_limited = now < like_reset_time
+        
         # Decide what to do next based on which is ready
-        can_tweet = tweet_idx < len(tweet_queue) and (now - last_tweet_time >= DELAY_BETWEEN_SAME_TYPE)
-        can_like = like_idx < len(like_queue) and (now - last_like_time >= DELAY_BETWEEN_SAME_TYPE)
+        can_tweet = (tweet_idx < len(tweet_queue) and 
+                     not tweet_rate_limited and
+                     (now - last_tweet_time >= DELAY_BETWEEN_SAME_TYPE))
+        can_like = (like_idx < len(like_queue) and 
+                    not like_rate_limited and
+                    (now - last_like_time >= DELAY_BETWEEN_SAME_TYPE))
         
         action = None
         
@@ -218,10 +239,41 @@ def main():
         elif can_like:
             action = 'like'
         else:
-            # Neither ready, wait a bit
+            # Neither ready - figure out why and wait appropriately
+            tweets_remaining = tweet_idx < len(tweet_queue)
+            likes_remaining = like_idx < len(like_queue)
+            
+            # If both are rate limited, wait until the earlier reset
+            if tweets_remaining and likes_remaining and tweet_rate_limited and like_rate_limited:
+                wait_until = min(tweet_reset_time, like_reset_time)
+                wait_secs = wait_until - now
+                if wait_secs > 0:
+                    wait_mins = wait_secs / 60
+                    log(f"    Both rate limited. Waiting {wait_mins:.1f} minutes until reset...")
+                    time.sleep(wait_secs + 1)
+                continue
+            
+            # If only one type left and it's rate limited, wait for its reset
+            if tweets_remaining and not likes_remaining and tweet_rate_limited:
+                wait_secs = tweet_reset_time - now
+                if wait_secs > 0:
+                    wait_mins = wait_secs / 60
+                    log(f"    Tweets rate limited. Waiting {wait_mins:.1f} minutes until reset...")
+                    time.sleep(wait_secs + 1)
+                continue
+            
+            if likes_remaining and not tweets_remaining and like_rate_limited:
+                wait_secs = like_reset_time - now
+                if wait_secs > 0:
+                    wait_mins = wait_secs / 60
+                    log(f"    Likes rate limited. Waiting {wait_mins:.1f} minutes until reset...")
+                    time.sleep(wait_secs + 1)
+                continue
+            
+            # Otherwise just wait for the delay
             wait = min(
-                DELAY_BETWEEN_SAME_TYPE - (now - last_tweet_time) if tweet_idx < len(tweet_queue) else 9999,
-                DELAY_BETWEEN_SAME_TYPE - (now - last_like_time) if like_idx < len(like_queue) else 9999
+                DELAY_BETWEEN_SAME_TYPE - (now - last_tweet_time) if tweets_remaining else 9999,
+                DELAY_BETWEEN_SAME_TYPE - (now - last_like_time) if likes_remaining else 9999
             )
             if wait > 0:
                 time.sleep(min(wait, 5))
@@ -234,7 +286,7 @@ def main():
             preview = item['text'][:40].replace('\n', ' ') if item['text'] else ''
             log(f"{progress} DELETE {item['type'].upper()} {item['id']} | {preview}...")
             
-            result = do_action(client, item)
+            result, reset_ts = do_action(client, item)
             
             if result == 'done':
                 save_id(TWEETS_PROGRESS, item['id'])
@@ -242,8 +294,13 @@ def main():
                 tweet_idx += 1
                 last_tweet_time = time.time()
             elif result == 'rate_limit':
-                log(f"    ⏳ Tweet rate limited, will retry via likes...")
-                last_tweet_time = time.time() + 60  # Pause tweets for 60s extra
+                if reset_ts:
+                    tweet_reset_time = reset_ts
+                    wait_secs = reset_ts - time.time()
+                    log(f"    ⏳ Tweet rate limited. Reset in {wait_secs/60:.1f} minutes")
+                else:
+                    tweet_reset_time = time.time() + 900  # Default 15 min
+                    log(f"    ⏳ Tweet rate limited. Waiting 15 minutes (no reset header)")
             else:
                 tweet_idx += 1  # Skip on error
                 
@@ -253,7 +310,7 @@ def main():
             preview = item['text'][:40].replace('\n', ' ') if item['text'] else ''
             log(f"{progress} UNLIKE {item['id']} | {preview}...")
             
-            result = do_action(client, item)
+            result, reset_ts = do_action(client, item)
             
             if result == 'done':
                 save_id(LIKES_PROGRESS, item['id'])
@@ -261,8 +318,13 @@ def main():
                 like_idx += 1
                 last_like_time = time.time()
             elif result == 'rate_limit':
-                log(f"    ⏳ Like rate limited, will retry via tweets...")
-                last_like_time = time.time() + 60  # Pause likes for 60s extra
+                if reset_ts:
+                    like_reset_time = reset_ts
+                    wait_secs = reset_ts - time.time()
+                    log(f"    ⏳ Like rate limited. Reset in {wait_secs/60:.1f} minutes")
+                else:
+                    like_reset_time = time.time() + 900  # Default 15 min
+                    log(f"    ⏳ Like rate limited. Waiting 15 minutes (no reset header)")
             else:
                 like_idx += 1  # Skip on error
     
